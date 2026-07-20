@@ -1,0 +1,36 @@
+* { -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #E9E9E7;
+  font-family: 'Manrope', 'Noto Sans Thai', sans-serif;
+  color: #17181A;
+}
+
+*::-webkit-scrollbar { width: 0; height: 0; }
+
+input {
+  outline: none;
+  font-family: 'Manrope', 'Noto Sans Thai', sans-serif;
+}
+input::placeholder { color: #A9A9A4; font-weight: 500; }
+
+.press { transition: transform 0.15s; cursor: pointer; user-select: none; }
+.press:active { transform: scale(0.97); }
+.press-sm { transition: transform 0.15s; cursor: pointer; user-select: none; }
+.press-sm:active { transform: scale(0.92); }
+
+.thai { font-family: 'Noto Sans Thai', 'Manrope', sans-serif; }
+
+@keyframes sheetUp {
+  from { transform: translateY(40px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.sheet-up { animation: sheetUp 0.25s ease-out; }
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.fade-in { animation: fadeIn 0.2s ease-out; }
