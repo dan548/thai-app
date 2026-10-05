@@ -1,7 +1,8 @@
 'use client';
 
 import { C, Icon, FlameIcon, SpeakBtn, SectionLabel } from '@/components/ui';
-import { PLACES, missionOfToday } from '@/lib/data';
+import { PLACES } from '@/lib/data';
+import MissionCard from '@/components/MissionCard';
 import { plural, NEW_PER_DAY, LEARNED_BOX } from '@/lib/srs';
 import { USER_NAME, applyGender } from '@/lib/profile';
 
@@ -20,8 +21,8 @@ function WordActionBtn({ active, d, onClick }) {
 export default function Home({
   streak, newCount, reviewCount, chatCount, recentWords = [], reviews = {}, pinnedIds = [],
   onTogglePin, onToggleLearned, onStartNew, onStartReview, onPlace,
+  mission, missionRecord, noVoice, onSaveMission, onAddMissionPhrase, inboxCount, onInbox,
 }) {
-  const mission = missionOfToday();
   const hasNew = newCount > 0;
 
   return (
@@ -29,7 +30,7 @@ export default function Home({
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
           <div className="thai" style={{ fontSize: 26, fontWeight: 700, lineHeight: 1.1 }}>สวัสดี {USER_NAME}</div>
-          <div style={{ fontSize: 12.5, fontWeight: 600, color: C.sub, marginTop: 3 }}>sà-wàt-dii khâ · Савади</div>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: C.sub, marginTop: 3 }}>{applyGender('sà-wàt-dii khâ')} · Савади</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff', borderRadius: 999, padding: '8px 13px', flexShrink: 0 }}>
           <FlameIcon />
@@ -94,17 +95,11 @@ export default function Home({
         )}
       </div>
 
-      <div style={{ background: '#fff', borderRadius: 24, padding: 18, marginTop: 12 }}>
-        <SectionLabel>МИССИЯ ДНЯ</SectionLabel>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 12 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 800, lineHeight: 1.35 }}>{mission.text}</div>
-            <div className="thai" style={{ fontSize: 15, fontWeight: 600, color: '#55564F', marginTop: 6 }}>{applyGender(mission.th)}</div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: C.greenDark, marginTop: 2 }}>{applyGender(mission.tr)}</div>
-          </div>
-          <SpeakBtn text={mission.th} />
-        </div>
-      </div>
+      <button onClick={onInbox} style={{ width: '100%', textAlign: 'left', border: 0, background: '#fff', borderRadius: 24, padding: 18, marginTop: 12, font: 'inherit', fontWeight: 800 }}>
+        Входящие фразы · {inboxCount}
+        <div style={{ fontSize: 12, fontWeight: 500, color: C.sub, marginTop: 6 }}>Из чата, видео и ручного ввода — выбери, что учить</div>
+      </button>
+      <MissionCard key={missionRecord?.day || mission.id} mission={mission} record={missionRecord} noVoice={noVoice} onSave={onSaveMission} onPrepare={onPlace} onAddPhrase={onAddMissionPhrase} />
 
       {recentWords.length > 0 && (
         <div style={{ background: '#fff', borderRadius: 24, padding: 18, marginTop: 12 }}>

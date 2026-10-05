@@ -4,11 +4,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import AuthGate from '@/components/AuthGate';
 import BackupControls from '@/components/BackupControls';
+import MissionHistory from '@/components/MissionHistory';
+import Inbox from '@/components/screens/Inbox';
+import { inLearning, incomingPhrases, phraseChoice } from '@/lib/learning';
 import { confirmedWrite } from '@/lib/save';
 import { createGradeSaver } from '@/lib/grades';
-import { todayStr, dueDateFor, calcStreak, NEW_PER_DAY, LEARNED_BOX } from '@/lib/srs';
+import { todayStr, calcStreak, NEW_PER_DAY } from '@/lib/srs';
 import { checkThaiVoice } from '@/lib/tts';
-import { DECK_META, VIDEOS } from '@/lib/data';
+import { DECK_META, VIDEOS, missionOfToday } from '@/lib/data';
 import { genderPhrase } from '@/lib/profile';
 import { BottomNav, C } from '@/components/ui';
 import Home from '@/components/screens/Home';
@@ -32,6 +35,11 @@ function App() {
   // Оверлеи поверх вкладок: {type:'deck'|'place'|'dialog', id} или {type:'lesson', mode, deck?}
   const [overlay, setOverlay] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [addDeck, setAddDeck] = useState('base');
+  const [decisions, setDecisions] = useState({});
+  const [missions, setMissions] = useState([]);
+  const [wordVideo, setWordVideo] = useState(null);
+  const [dismissedVideos, setDismissedVideos] = useState([]);
 
   const [phrases, setPhrases] = useState([]);
   const [reviews, setReviews] = useState({}); // phrase_id -> {box, due_date}
@@ -65,20 +73,24 @@ function App() {
     setLoadError(false);
     try {
       const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 12000));
-      const [ph, rv, ac, wv] = await Promise.race([
+      const [ph, rv, ac, wv, dc, ms] = await Promise.race([
         Promise.all([
           supabase.from('phrases').select('*').order('created_at'),
           supabase.from('reviews').select('*'),
           supabase.from('activity').select('*'),
           supabase.from('watched_videos').select('*'),
+          supabase.from('phrase_decisions').select('*'),
+          supabase.from('mission_results').select('*'),
         ]),
         timeout,
       ]);
-      if (ph.error || rv.error || ac.error || wv.error) throw ph.error || rv.error || ac.error || wv.error;
+      if ([ph,rv,ac,wv,dc,ms].some(r => r.error)) throw [ph,rv,ac,wv,dc,ms].find(r => r.error).error;
       setPhrases((ph.data || []).map(genderPhrase));
       setReviews(Object.fromEntries(rv.data.map((r) => [r.phrase_id, r])));
       setActivity(ac.data);
       setWatchedVideos(wv.data || []);
+      setDecisions(Object.fromEntries((dc.data || []).map(d => [d.phrase_id,d])));
+      setMissions(ms.data || []);
     } catch (e) {
       setLoadError(true);
     }
@@ -97,7 +109,12 @@ function App() {
   }, []);
 
   const today = todayStr();
-  const visible = useMemo(() => phrases.filter((p) => !p.hidden), [phrases]);
+  const studyPhrases = useMemo(() => phrases.filter(p => ['learn','known'].includes(phraseChoice(p,decisions,reviews))),[phrases,decisions,reviews]);
+  const visible = useMemo(() => studyPhrases.filter(p => !p.hidden),[studyPhrases]);
+  const incoming = useMemo(() => incomingPhrases(phrases,decisions,reviews,watchedVideos),[phrases,decisions,reviews,watchedVideos]);
+  const inboxPhrases = useMemo(() => phrases.filter(p => p.source !== 'seed' && (p.source !== 'video' || watchedVideos.some(w => w.video_id === p.video_id))),[phrases,watchedVideos]);
+  const mission = missionOfToday(today);
+  const missionRecord = missions.find(m => m.day === today && m.mission_id === mission.id);
   const newPhrases = useMemo(() => visible.filter((p) => !reviews[p.id]), [visible, reviews]);
   const duePhrases = useMemo(
     () => visible.filter((p) => reviews[p.id] && reviews[p.id].due_date <= today),
@@ -128,14 +145,13 @@ function App() {
     return map;
   }, [phrases]);
 
-  // Попап показываем для самого свежего просмотренного видео, у которого слова
-  // ещё не добавлены (words_added=false) и для которого слова вообще заведены.
+  // Новые слова требуют решения даже у видео с ранее сохранённым выбором.
   const pendingVideo = useMemo(() => {
     const cand = watchedVideos
-      .filter((w) => !w.words_added && (videoPhrases[w.video_id]?.length))
+      .filter(w => !dismissedVideos.includes(w.video_id) && videoPhrases[w.video_id]?.some(p => phraseChoice(p,decisions,reviews) === 'pending'))
       .sort((a, b) => (b.watched_at || '').localeCompare(a.watched_at || ''));
     return cand[0] || null;
-  }, [watchedVideos, videoPhrases]);
+  }, [watchedVideos, videoPhrases, dismissedVideos, decisions, reviews]);
 
   const savePinned = (ids) => {
     setPinned(ids);
@@ -149,56 +165,70 @@ function App() {
     else savePinned([...pinned, phrase.id]);
   };
 
-  // Добавить слова видео в изучение: снять hidden с ВЫБРАННЫХ (не исключённых),
-  // закинуть их в очередь «Учить новое» и пометить видео обработанным (words_added=true).
-  // excludedIds — слова, с которых сняли галочку в попапе: они остаются скрытыми.
-  const addVideoWords = async (videoId, excludedIds = []) => {
-    const list = videoPhrases[videoId] || [];
-    if (!list.length) return;
-    const ex = new Set(excludedIds);
-    const ids = list.filter((p) => !ex.has(p.id)).map((p) => p.id);
-    if (ids.length) await write(() => supabase.from('phrases').update({ hidden: false }).in('id', ids));
-    await write(() => supabase.from('watched_videos').update({ words_added: true }).eq('video_id', videoId));
-    setPhrases((prev) => prev.map((p) => (ids.includes(p.id) ? { ...p, hidden: false } : p)));
-    if (ids.length) savePinned([...new Set([...pinned, ...ids])]);
-    setWatchedVideos((prev) => prev.map((w) => (w.video_id === videoId ? { ...w, words_added: true } : w)));
+  const applyChoices = (results) => {
+    const updated = new Map(results.map(r => [r.phrase.id,genderPhrase(r.phrase)]));
+    setPhrases(prev => prev.map(p => updated.get(p.id) || p));
+    setDecisions(prev => ({ ...prev, ...Object.fromEntries(results.map(r => [r.decision.phrase_id,r.decision])) }));
+    setReviews(prev => {
+      const next = { ...prev };
+      for (const r of results) {
+        if (r.review) next[r.phrase.id] = r.review;
+        else delete next[r.phrase.id];
+      }
+      return next;
+    });
+    const removed = new Set(results.filter(r => r.decision.choice !== 'learn').map(r => r.phrase.id));
+    savePinned(pinned.filter(id => !removed.has(id)));
   };
-
-  const startVideoLesson = async (videoId, excludedIds = []) => {
-    const ex = new Set(excludedIds);
-    const ids = (videoPhrases[videoId] || []).filter((p) => !ex.has(p.id)).map((p) => p.id);
-    await addVideoWords(videoId, excludedIds);
-    if (ids.length) setOverlay({ type: 'lesson', mode: 'video', videoId, phraseIds: ids });
+  const decidePhrase = async (phrase, choice) => {
+    const { data } = await write(() => supabase.rpc('decide_phrase',{ phrase: phrase.id, decision: choice }));
+    applyChoices([data]);
+  };
+  const closeVideo = (id) => {
+    setDismissedVideos(prev => [...new Set([...prev,id])]);
+    setWordVideo(null);
+  };
+  const saveVideoChoices = async (id, choices, start = false) => {
+    const { data } = await write(() => supabase.rpc('choose_video_words',{ video: id, choices }));
+    applyChoices(data.results);
+    setWatchedVideos(prev => [...prev.filter(w => w.video_id !== id),data.watched]);
+    closeVideo(id);
+    const ids = data.results.filter(r => r.decision.choice === 'learn').map(r => r.phrase.id);
+    if (start && ids.length) setOverlay({ type: 'lesson', mode: 'video', videoId: id, phraseIds: ids });
+  };
+  const openVideoWords = async (id) => {
+    const list = videoPhrases[id] || [];
+    if (list.some(p => ['pending','deferred'].includes(phraseChoice(p,decisions,reviews)))) {
+      setWordVideo(id); return;
+    }
+    const ids = list.filter(p => inLearning(p,decisions,reviews)).map(p => p.id);
+    if (ids.length) setOverlay({ type: 'lesson', mode: 'video', videoId: id, phraseIds: ids });
+    else setWordVideo(id);
+  };
+  const saveMission = async (selected, { note, completed }) => {
+    const existing = missions.find(m => m.day === today);
+    const row = { day: today, mission_id: selected.id, note,
+      completed_at: completed ? existing?.completed_at || new Date().toISOString() : null,
+      checked_at: completed ? existing?.checked_at || null : null };
+    await write(() => supabase.from('mission_results').upsert(row));
+    setMissions(prev => [...prev.filter(m => m.day !== today),row]);
+  };
+  const checkMission = async (record) => {
+    const checked_at = new Date().toISOString();
+    await write(() => supabase.from('mission_results').update({ checked_at }).eq('day',record.day).select().single());
+    setMissions(prev => prev.map(m => m.day === record.day ? { ...m, checked_at } : m));
   };
 
   const markWatched = async (videoId) => {
     if (watchedVideos.some(w => w.video_id === videoId)) return;
     const row = { video_id: videoId, words_added: false, watched_at: new Date().toISOString() };
-    await write(() => supabase.from('watched_videos').upsert(row));
+    await write(() => supabase.from('watched_videos').upsert(row, { ignoreDuplicates: true }));
     setWatchedVideos(prev => [...prev.filter(w => w.video_id !== videoId), row]);
   };
 
-  // ✓ на главной: «уже знаю» — сразу закрепить (box 4); повторный тап отменяет и возвращает в новые
-  const toggleLearned = async (phrase) => {
-    if ((reviews[phrase.id]?.box ?? -1) >= LEARNED_BOX) {
-      await write(() => supabase.from('reviews').delete().eq('phrase_id', phrase.id));
-      setReviews((prev) => {
-        const next = { ...prev };
-        delete next[phrase.id];
-        return next;
-      });
-    } else {
-      const row = {
-        phrase_id: phrase.id,
-        box: LEARNED_BOX,
-        due_date: dueDateFor(LEARNED_BOX),
-        updated_at: new Date().toISOString(),
-      };
-      await write(() => supabase.from('reviews').upsert(row));
-      setReviews((prev) => ({ ...prev, [phrase.id]: row }));
-      if (pinned.includes(phrase.id)) unpin(phrase.id);
-    }
-  };
+  // «Уже знаю» и возврат к изучению используют то же атомарное решение, что и входящие.
+  const toggleLearned = (phrase) => decidePhrase(phrase,
+    phraseChoice(phrase, decisions, reviews) === 'known' ? 'learn' : 'known');
 
   // Оценка карточки: обновить box/due_date в reviews (upsert)
   const gradePhrase = async (phrase, grade) => {
@@ -279,7 +309,7 @@ function App() {
       return <Tones noVoice={noVoice} />;
     }
     if (!overlay && tab === 'videos') {
-      return <Videos watched={watchedVideos} onWatch={markWatched} videoPhrases={videoPhrases} onLearn={startVideoLesson} />;
+      return <Videos watched={watchedVideos} onWatch={markWatched} videoPhrases={videoPhrases} onLearn={openVideoWords} decisions={decisions} reviews={reviews} noVoice={noVoice} />;
     }
     if (overlay?.type === 'dialog') {
       return <DialogPlayer dialogId={overlay.id} noVoice={noVoice} onBack={() => setOverlay(null)} />;
@@ -314,6 +344,9 @@ function App() {
         />
       );
     }
+    if (overlay?.type === 'inbox') {
+      return <Inbox phrases={inboxPhrases} decisions={decisions} reviews={reviews} noVoice={noVoice} onDecision={decidePhrase} onBack={() => setOverlay(null)} />;
+    }
     if (overlay?.type === 'place') {
       return <Place deck={overlay.id} phrases={phrases} noVoice={noVoice} onBack={() => setOverlay(null)} />;
     }
@@ -321,7 +354,7 @@ function App() {
       return (
         <Deck
           deck={overlay.id}
-          phrases={phrases}
+          phrases={studyPhrases}
           reviews={reviews}
           onBack={() => setOverlay(null)}
           onTrain={() => setOverlay({ type: 'lesson', mode: 'deck', deck: overlay.id, from: 'deck' })}
@@ -331,12 +364,16 @@ function App() {
     }
     switch (tab) {
       case 'decks':
-        return <Decks phrases={phrases} reviews={reviews} onDeck={(id) => setOverlay({ type: 'deck', id })} onAdd={() => setAddOpen(true)} />;
+        return <Decks phrases={studyPhrases} reviews={reviews} onDeck={(id) => setOverlay({ type: 'deck', id })} onAdd={() => { setAddDeck('base'); setAddOpen(true); }} />;
       case 'progress':
-        return <><Progress streak={streak} phrases={phrases} reviews={reviews} /><BackupControls onRestore={load} /></>;
+        return <><Progress streak={streak} phrases={studyPhrases} reviews={reviews} /><MissionHistory noVoice={noVoice} records={missions} onCheck={checkMission} /><BackupControls onRestore={load} /></>;
       default:
         return (
           <Home
+            mission={mission} missionRecord={missionRecord} noVoice={noVoice}
+            onSaveMission={saveMission}
+            onAddMissionPhrase={() => { setAddDeck(mission.deck || 'base'); setAddOpen(true); }}
+            inboxCount={incoming.length} onInbox={() => setOverlay({ type: 'inbox' })}
             streak={streak}
             newCount={Math.min(newPhrases.length, NEW_PER_DAY)}
             reviewCount={duePhrases.length}
@@ -368,14 +405,15 @@ function App() {
           <BottomNav active={tab} onNav={(key) => { setTab(key); setOverlay(null); setAddOpen(false); }} />
         </div>
       )}
-      {addOpen && <AddSheet onClose={() => setAddOpen(false)} onAdd={addPhrase} />}
-      {!loading && !loadError && !inLesson && !addOpen && pendingVideo && (
+      {addOpen && <AddSheet initialDeck={addDeck} onClose={() => setAddOpen(false)} onAdd={addPhrase} />}
+      {!loading && !loadError && !inLesson && !addOpen && (wordVideo || pendingVideo) && (
         <VideoWords
-          videoNo={VIDEOS.findIndex((v) => v.id === pendingVideo.video_id) + 1}
-          title={VIDEOS.find((v) => v.id === pendingVideo.video_id)?.title}
-          phrases={videoPhrases[pendingVideo.video_id] || []}
-          onStart={(excludedIds) => startVideoLesson(pendingVideo.video_id, excludedIds)}
-          onClose={(excludedIds) => addVideoWords(pendingVideo.video_id, excludedIds)}
+          key={wordVideo || pendingVideo.video_id}
+          title={VIDEOS.find(v => v.id === (wordVideo || pendingVideo.video_id))?.title}
+          phrases={videoPhrases[wordVideo || pendingVideo.video_id] || []}
+          decisions={decisions} reviews={reviews} noVoice={noVoice}
+          onSave={(choices,start) => saveVideoChoices(wordVideo || pendingVideo.video_id,choices,start)}
+          onClose={() => closeVideo(wordVideo || pendingVideo.video_id)}
         />
       )}
     </div>

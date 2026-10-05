@@ -2,11 +2,12 @@
 
 import { C, BackBtn, SpeakBtn, SectionLabel, NoVoiceHint } from '@/components/ui';
 import { PLACES, THEY_SAY, DECK_META } from '@/lib/data';
+import { situationPhrases } from '@/lib/situations';
 
 // «Я сейчас в…» — шпаргалка на 30 секунд перед входом в место
 export default function Place({ deck, phrases, noVoice, onBack }) {
   const place = PLACES.find((p) => p.deck === deck);
-  const say = phrases.filter((p) => p.deck === deck && !p.hidden).slice(0, 5);
+  const say = situationPhrases(deck, phrases);
   const theySay = THEY_SAY[deck] || [];
 
   return (
@@ -27,17 +28,19 @@ export default function Place({ deck, phrases, noVoice, onBack }) {
         <SectionLabel>СКАЖИ ЭТО</SectionLabel>
       </div>
       <div style={{ background: '#fff', borderRadius: 24, marginTop: 10, overflow: 'hidden' }}>
-        {say.map((p, i) => (
-          <div key={p.id} style={{
+        {say.map(({ phrase: p, intent }, i) => (
+          <div key={intent} style={{
             display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px',
             borderBottom: i < say.length - 1 ? `1px solid ${C.line}` : 'none',
           }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="thai" style={{ fontSize: 17, fontWeight: 700 }}>{p.th}</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, marginBottom: 5 }}>{i + 1}. {intent}</div>
+              {p ? <><div className="thai" style={{ fontSize: 17, fontWeight: 700 }}>{p.th}</div>
               <div style={{ fontSize: 12, fontWeight: 700, color: C.greenDark, marginTop: 2 }}>{p.tr}</div>
-              <div style={{ fontSize: 13, fontWeight: 500, color: C.sub, marginTop: 2 }}>{p.ru}</div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: C.sub, marginTop: 2 }}>{p.ru}</div></>
+                : <div style={{ fontSize: 13, color: C.sub }}>Нужная фраза ещё не добавлена</div>}
             </div>
-            <SpeakBtn text={p.th} />
+            {p && <SpeakBtn text={p.th} />}
           </div>
         ))}
         {say.length === 0 && (

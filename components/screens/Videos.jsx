@@ -1,13 +1,14 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { C, Icon, ScreenTitle } from '@/components/ui';
+import { C, Icon, ScreenTitle, NoVoiceHint } from '@/components/ui';
+import { videoProgress } from '@/lib/learning';
 import { VIDEOS } from '@/lib/data';
 
 // Вкладка «Видео»: ролики с ютуб-канала по порядку. «Посмотреть» открывает YouTube
 // и помечает видео просмотренным. Отметки хранятся в Supabase (таблица watched_videos),
 // поэтому переживают перезагрузку и синхронизируются между устройствами.
-export default function Videos({ watched, onWatch, videoPhrases, onLearn }) {
+export default function Videos({ watched, onWatch, videoPhrases, onLearn, decisions, reviews, noVoice }) {
   const busy = useRef(false);
   const [saving, setSaving] = useState(null);
   const [error, setError] = useState('');
@@ -22,10 +23,11 @@ export default function Videos({ watched, onWatch, videoPhrases, onLearn }) {
   return (
     <div className="fade-in">
       <ScreenTitle>Видео</ScreenTitle>
+      {noVoice && <NoVoiceHint />}
       {error && <p role="alert">{error}</p>}
       {saving && <p role="status">Сохраняю…</p>}
       <div style={{ fontSize: 13, fontWeight: 500, color: C.sub, marginTop: 6, lineHeight: 1.5 }}>
-        Смотри по порядку — просмотренные отмечаются галочкой.
+        Открой видео, затем выбери слова для изучения. Галочка отмечает открытие ролика.
       </div>
 
       {VIDEOS.length === 0 && (
@@ -40,9 +42,10 @@ export default function Videos({ watched, onWatch, videoPhrases, onLearn }) {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 20 }}>
         {VIDEOS.map((v, i) => {
+          const progress = videoProgress(videoPhrases[v.id] || [],decisions,reviews);
           const seen = watched.some(w => w.video_id === v.id);
           return (
-            <div key={v.id} style={{ background: '#fff', borderRadius: 20, padding: 16, display: 'flex', alignItems: 'center', gap: 13 }}>
+            <div key={v.id} style={{ background: '#fff', borderRadius: 20, padding: 16, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 13 }}>
               <div style={{
                 width: 44, height: 44, borderRadius: 14, background: seen ? '#F2F8DC' : C.bg,
                 display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
@@ -53,9 +56,10 @@ export default function Videos({ watched, onWatch, videoPhrases, onLearn }) {
               </div>
               <div style={{ flex: 1, minWidth: 0, opacity: seen ? 0.5 : 1 }}>
                 <div style={{ fontSize: 15.5, fontWeight: 800 }}>Видео {i + 1}</div>
+                {progress.added > 0 && <div style={{ fontSize: 11, color: C.greenDark, marginTop: 3 }}>Добавлено: {progress.added} · В изучении: {progress.learning} · Закреплено: {progress.learned}</div>}
                 {v.title && <div style={{ fontSize: 12.5, fontWeight: 500, color: C.sub, marginTop: 2, lineHeight: 1.35 }}>{v.title}</div>}
               </div>
-              {seen && videoPhrases[v.id]?.length > 0 && <button disabled={!!saving} onClick={() => perform(v.id, () => onLearn(v.id))} style={{ border: 0, borderRadius: 16, padding: 10, cursor: 'pointer' }}>Учить слова</button>}
+              <div style={{ width: '100%', display: 'flex', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8 }}>{seen && videoPhrases[v.id]?.length > 0 && <button disabled={!!saving} onClick={() => perform(v.id, () => onLearn(v.id))} style={{ border: 0, borderRadius: 16, padding: 10, cursor: 'pointer' }}>{progress.pending ? 'Разобрать слова' : progress.added ? 'Учить слова' : 'Выбрать слова'}</button>}
               <a
                 className="press-sm"
                 href={`https://www.youtube.com/watch?v=${v.id}`}
@@ -74,7 +78,7 @@ export default function Videos({ watched, onWatch, videoPhrases, onLearn }) {
                 }}
               >
                 {seen ? 'Ещё раз' : 'Посмотреть'}
-              </a>
+              </a></div>
             </div>
           );
         })}

@@ -10,11 +10,11 @@ const inputStyle = {
 };
 
 // Шторка «Новая фраза»: ru/th/tr + выбор колоды, insert с source='manual'
-export default function AddSheet({ onClose, onAdd }) {
+export default function AddSheet({ onClose, onAdd, initialDeck = DECK_ORDER[0] }) {
   const [ru, setRu] = useState('');
   const [th, setTh] = useState('');
   const [tr, setTr] = useState('');
-  const [deck, setDeck] = useState(DECK_ORDER[0]);
+  const [deck, setDeck] = useState(initialDeck);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
@@ -48,7 +48,7 @@ export default function AddSheet({ onClose, onAdd }) {
           </div>
         </div>
         <div style={{ fontSize: 13, fontWeight: 500, color: C.sub, lineHeight: 1.5, marginTop: 6 }}>
-          Спроси у Claude фразу — и вставь сюда. Она попадёт в тему и в расписание повторений.
+          Спроси у Claude фразу — и вставь сюда. Она попадёт во «Входящие», где можно решить, стоит ли её учить.
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 13, marginTop: 18 }}>
           <div>
