@@ -402,11 +402,11 @@ function App() {
       </div>
       {!inLesson && (
         <div style={{ position: 'sticky', bottom: 0 }}>
-          <BottomNav active={tab} onNav={(key) => { setTab(key); setOverlay(null); setAddOpen(false); }} />
+          <BottomNav active={tab} onNav={(key) => { setTab(key); setOverlay(null); setAddOpen(false); setWordVideo(null); }} />
         </div>
       )}
       {addOpen && <AddSheet initialDeck={addDeck} onClose={() => setAddOpen(false)} onAdd={addPhrase} />}
-      {!loading && !loadError && !inLesson && !addOpen && (wordVideo || pendingVideo) && (
+      {!loading && !loadError && tab === 'videos' && !overlay && !addOpen && (wordVideo || pendingVideo) && (
         <VideoWords
           key={wordVideo || pendingVideo.video_id}
           title={VIDEOS.find(v => v.id === (wordVideo || pendingVideo.video_id))?.title}
