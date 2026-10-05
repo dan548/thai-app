@@ -30,7 +30,7 @@ export default function BackupControls({ onRestore }) {
         setPending(validateBackup(JSON.parse(await file.text())));
       });
     }} /></label>
-    {pending && <div><p>Фраз: {pending.phrases.length}, записей прогресса: {pending.reviews.length}. Совпадающие записи будут заменены данными копии. Другие записи сохранятся.</p>
+    {pending && <div><p>Фраз: {pending.phrases.length}, записей прогресса: {pending.reviews.length}{pending.version === 2 && <>, решений: {pending.phrase_decisions.length}, миссий: {pending.mission_results.length}</>}. Совпадающие записи будут заменены данными копии. Другие записи сохранятся.</p>
       <button disabled={busy} onClick={() => run(async () => {
         // Сначала сохранить текущее состояние отдельной копией.
         const before = await exportBackup(supabase);
