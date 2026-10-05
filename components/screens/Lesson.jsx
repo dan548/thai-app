@@ -15,12 +15,14 @@ const HIDE_ICON = 'M3 3l18 18M10.6 5.1A10.9 10.9 0 0112 5c6.5 0 10 7 10 7a18.2 1
 
 // Занятие: показ RU → «Показать ответ» → TH + транскрипция + озвучка → оценка.
 // «Не помню» возвращает карточку в конец очереди этой же сессии.
-export default function Lesson({ title, initialQueue, noVoice, onGrade, onHide, onFinish, onExit }) {
+export default function Lesson({ title, initialQueue, noVoice, onGrade, onHide, onExit }) {
   const [queue, setQueue] = useState(initialQueue);
   const [idx, setIdx] = useState(0);
   const [rev, setRev] = useState(false);
-  const [done, setDone] = useState(false);
-  const counted = useRef(false);
+  const [done, setDone] = useState(initialQueue.length === 0);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const busy = useRef(false);
 
   const phrase = queue[idx];
   const total = initialQueue.length;
@@ -29,32 +31,36 @@ export default function Lesson({ title, initialQueue, noVoice, onGrade, onHide, 
     if (rev && phrase) speak(phrase.th);
   }, [rev]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const grade = (g) => {
-    onGrade(phrase, g);
-    // Засчитать день в стрик сразу после первой оценки — даже если занятие
-    // не доведено до конца (иначе частичные занятия не попадают в activity)
-    if (!counted.current) {
-      counted.current = true;
-      onFinish();
-    }
-    let nextQueue = queue;
-    if (g === 'again') nextQueue = [...queue, phrase];
-    setQueue(nextQueue);
-    setRev(false);
-    if (idx + 1 >= nextQueue.length) setDone(true);
-    else setIdx(idx + 1);
+  const grade = async (g) => {
+    if (busy.current || !phrase) return;
+    busy.current = true; setSaving(true); setError('');
+    try {
+      await onGrade(phrase, g);
+      let nextQueue = queue;
+      if (g === 'again') nextQueue = [...queue, phrase];
+      setQueue(nextQueue);
+      setRev(false);
+      if (idx + 1 >= nextQueue.length) setDone(true);
+      else setIdx(idx + 1);
+    } catch { setError('Не сохранилось — проверь связь и повтори действие.'); }
+    finally { busy.current = false; setSaving(false); }
   };
 
   // Скрыть фразу из изучения прямо с карточки: убрать из очереди (и её повторы
   // от «Не помню») и перейти дальше, без оценки
-  const hide = (e) => {
+  const hide = async (e) => {
     e.stopPropagation();
-    onHide(phrase);
-    const nextQueue = queue.filter((p, i) => i <= idx || p.id !== phrase.id);
-    setQueue(nextQueue);
-    setRev(false);
-    if (idx + 1 >= nextQueue.length) setDone(true);
-    else setIdx(idx + 1);
+    if (busy.current || !phrase) return;
+    busy.current = true; setSaving(true); setError('');
+    try {
+      await onHide(phrase);
+      const nextQueue = queue.filter((p, i) => i <= idx || p.id !== phrase.id);
+      setQueue(nextQueue);
+      setRev(false);
+      if (idx + 1 >= nextQueue.length) setDone(true);
+      else setIdx(idx + 1);
+    } catch { setError('Не сохранилось — проверь связь и повтори действие.'); }
+    finally { busy.current = false; setSaving(false); }
   };
 
   const hideBtn = onHide && (
@@ -66,7 +72,7 @@ export default function Lesson({ title, initialQueue, noVoice, onGrade, onHide, 
     </div>
   );
 
-  const filled = done ? total : Math.min(idx, total);
+  const filled = done ? total : Math.min(idx, Math.max(0, total - 1));
   const segs = initialQueue.map((_, i) => ({ on: i < filled }));
 
   return (
@@ -82,6 +88,8 @@ export default function Lesson({ title, initialQueue, noVoice, onGrade, onHide, 
       </div>
 
       {noVoice && !done && <NoVoiceHint />}
+      {!done && <p role="status" style={{ fontSize: 13, color: C.sub }}>Осталось карточек: {queue.length - idx}{saving ? ' · Сохраняю…' : ''}</p>}
+      {error && <p role="alert" style={{ color: '#C4453A' }}>{error}</p>}
 
       {!done && phrase && !rev && (
         <div onClick={() => setRev(true)} style={{ position: 'relative', marginTop: 32, cursor: 'pointer' }}>
