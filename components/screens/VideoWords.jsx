@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { C, Icon, SpeakBtn } from '@/components/ui';
 
 const wordForm = (n) =>
@@ -14,12 +14,14 @@ const wordForm = (n) =>
 export default function VideoWords({ videoNo, title, phrases, onStart, onClose }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const busy = useRef(false);
   const submit = async (start = false) => {
-    if (saving) return;
+    if (busy.current) return;
+    busy.current = true;
     setSaving(true); setError('');
     try { await (start ? onStart : onClose)([...excluded]); }
     catch { setError('Не сохранилось — проверь подключение и попробуй ещё раз.'); }
-    finally { setSaving(false); }
+    finally { busy.current = false; setSaving(false); }
   };
   const [excluded, setExcluded] = useState(() => new Set());
 

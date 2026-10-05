@@ -42,7 +42,7 @@ export default function Lesson({ title, initialQueue, noVoice, onGrade, onHide, 
       setRev(false);
       if (idx + 1 >= nextQueue.length) setDone(true);
       else setIdx(idx + 1);
-    } catch { setError('Не сохранилось — проверь связь и повтори действие.'); }
+    } catch (error) { setError(error.message?.startsWith('Сначала повтори') ? error.message : 'Не сохранилось — проверь связь и повтори действие.'); }
     finally { busy.current = false; setSaving(false); }
   };
 

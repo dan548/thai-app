@@ -5,7 +5,8 @@ import { supabase } from '@/lib/supabase';
 import AuthGate from '@/components/AuthGate';
 import BackupControls from '@/components/BackupControls';
 import { confirmedWrite } from '@/lib/save';
-import { todayStr, nextBox, dueDateFor, calcStreak, NEW_PER_DAY, LEARNED_BOX } from '@/lib/srs';
+import { createGradeSaver } from '@/lib/grades';
+import { todayStr, dueDateFor, calcStreak, NEW_PER_DAY, LEARNED_BOX } from '@/lib/srs';
 import { checkThaiVoice } from '@/lib/tts';
 import { DECK_META, VIDEOS } from '@/lib/data';
 import { genderPhrase } from '@/lib/profile';
@@ -51,7 +52,10 @@ function App() {
       throw error;
     }
   };
-  const safely = (action) => (...args) => { action(...args).catch(() => {}); };
+  // Только для обработчиков без состояния ожидания. Асинхронные экраны
+  // получают исходный Promise и обрабатывают ошибки самостоятельно.
+  const safely = (action) => (...args) => action(...args).catch(() => {});
+  const [saveGrade] = useState(() => createGradeSaver(supabase, request => write(request)));
   const [noVoice, setNoVoice] = useState(false);
   // Слова, закинутые с главной в очередь «Учить новое» (➕) — переживают перезагрузку
   const [pinned, setPinned] = useState([]);
@@ -198,10 +202,7 @@ function App() {
 
   // Оценка карточки: обновить box/due_date в reviews (upsert)
   const gradePhrase = async (phrase, grade) => {
-    // Передаём итоговую ступень: повтор того же запроса не повышает её дважды.
-    const { data } = await write(() => supabase.rpc('save_grade', {
-      phrase: phrase.id, grade, target_box: nextBox(reviews[phrase.id]?.box ?? 0, grade), session_mode: overlay.mode,
-    }));
+    const data = await saveGrade(phrase.id, grade, overlay.mode);
     setReviews(prev => ({ ...prev, [phrase.id]: data.review }));
     setActivity(prev => [...prev.filter(a => a.day !== data.activity.day), data.activity]);
     if (pinned.includes(phrase.id)) unpin(phrase.id);
@@ -278,7 +279,7 @@ function App() {
       return <Tones noVoice={noVoice} />;
     }
     if (!overlay && tab === 'videos') {
-      return <Videos watched={watchedVideos} onWatch={safely(markWatched)} videoPhrases={videoPhrases} onLearn={safely(startVideoLesson)} />;
+      return <Videos watched={watchedVideos} onWatch={markWatched} videoPhrases={videoPhrases} onLearn={startVideoLesson} />;
     }
     if (overlay?.type === 'dialog') {
       return <DialogPlayer dialogId={overlay.id} noVoice={noVoice} onBack={() => setOverlay(null)} />;

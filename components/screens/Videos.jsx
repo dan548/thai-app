@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef, useState } from 'react';
 import { C, Icon, ScreenTitle } from '@/components/ui';
 import { VIDEOS } from '@/lib/data';
 
@@ -7,10 +8,22 @@ import { VIDEOS } from '@/lib/data';
 // и помечает видео просмотренным. Отметки хранятся в Supabase (таблица watched_videos),
 // поэтому переживают перезагрузку и синхронизируются между устройствами.
 export default function Videos({ watched, onWatch, videoPhrases, onLearn }) {
+  const busy = useRef(false);
+  const [saving, setSaving] = useState(null);
+  const [error, setError] = useState('');
+  const perform = async (id, action) => {
+    if (busy.current) return;
+    busy.current = true; setSaving(id); setError('');
+    try { await action(); }
+    catch { setError('Не сохранилось — проверь подключение и попробуй ещё раз.'); }
+    finally { busy.current = false; setSaving(null); }
+  };
 
   return (
     <div className="fade-in">
       <ScreenTitle>Видео</ScreenTitle>
+      {error && <p role="alert">{error}</p>}
+      {saving && <p role="status">Сохраняю…</p>}
       <div style={{ fontSize: 13, fontWeight: 500, color: C.sub, marginTop: 6, lineHeight: 1.5 }}>
         Смотри по порядку — просмотренные отмечаются галочкой.
       </div>
@@ -42,13 +55,18 @@ export default function Videos({ watched, onWatch, videoPhrases, onLearn }) {
                 <div style={{ fontSize: 15.5, fontWeight: 800 }}>Видео {i + 1}</div>
                 {v.title && <div style={{ fontSize: 12.5, fontWeight: 500, color: C.sub, marginTop: 2, lineHeight: 1.35 }}>{v.title}</div>}
               </div>
-              {seen && videoPhrases[v.id]?.length > 0 && <button onClick={() => onLearn(v.id)} style={{ border: 0, borderRadius: 16, padding: 10, cursor: 'pointer' }}>Учить слова</button>}
+              {seen && videoPhrases[v.id]?.length > 0 && <button disabled={!!saving} onClick={() => perform(v.id, () => onLearn(v.id))} style={{ border: 0, borderRadius: 16, padding: 10, cursor: 'pointer' }}>Учить слова</button>}
               <a
                 className="press-sm"
                 href={`https://www.youtube.com/watch?v=${v.id}`}
                 target="_blank"
                 rel="noreferrer"
-                onClick={() => onWatch(v.id)}
+                onClick={event => {
+                  // Обычный переход открывает новую вкладку, поэтому текущая
+                  // страница остаётся открытой и ожидает подтверждения записи.
+                  if (busy.current) { event.preventDefault(); return; }
+                  perform(v.id, () => onWatch(v.id));
+                }}
                 style={{
                   background: seen ? C.bg : '#17181A', color: seen ? C.text : '#fff',
                   borderRadius: 999, padding: '11px 18px', fontSize: 13, fontWeight: 800,
