@@ -2,7 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { todayStr, nextBox, dueDateFor, calcStreak, NEW_PER_DAY, LEARNED_BOX } from '@/lib/srs';
+import AuthGate from '@/components/AuthGate';
+import BackupControls from '@/components/BackupControls';
+import { confirmedWrite } from '@/lib/save';
+import { createGradeSaver } from '@/lib/grades';
+import { todayStr, dueDateFor, calcStreak, NEW_PER_DAY, LEARNED_BOX } from '@/lib/srs';
 import { checkThaiVoice } from '@/lib/tts';
 import { DECK_META, VIDEOS } from '@/lib/data';
 import { genderPhrase } from '@/lib/profile';
@@ -19,7 +23,11 @@ import Progress from '@/components/screens/Progress';
 import AddSheet from '@/components/screens/AddSheet';
 import VideoWords from '@/components/screens/VideoWords';
 
-export default function App() {
+export default function Page() {
+  return <AuthGate><App /></AuthGate>;
+}
+
+function App() {
   const [tab, setTab] = useState('home');
   // Оверлеи поверх вкладок: {type:'deck'|'place'|'dialog', id} или {type:'lesson', mode, deck?}
   const [overlay, setOverlay] = useState(null);
@@ -32,6 +40,22 @@ export default function App() {
   const [watchedVideos, setWatchedVideos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const [saveStatus, setSaveStatus] = useState('');
+  const write = async (request, attempts = 3) => {
+    setSaveStatus('Сохраняю…');
+    try {
+      const result = await confirmedWrite(request, attempts);
+      setSaveStatus('');
+      return result;
+    } catch (error) {
+      setSaveStatus('Не сохранилось. Проверь подключение и повтори действие.');
+      throw error;
+    }
+  };
+  // Только для обработчиков без состояния ожидания. Асинхронные экраны
+  // получают исходный Promise и обрабатывают ошибки самостоятельно.
+  const safely = (action) => (...args) => action(...args).catch(() => {});
+  const [saveGrade] = useState(() => createGradeSaver(supabase, request => write(request)));
   const [noVoice, setNoVoice] = useState(false);
   // Слова, закинутые с главной в очередь «Учить новое» (➕) — переживают перезагрузку
   const [pinned, setPinned] = useState([]);
@@ -63,9 +87,13 @@ export default function App() {
 
   useEffect(() => {
     load();
-    try { setPinned(JSON.parse(localStorage.getItem('thai-pinned-new') || '[]')); } catch {}
-    checkThaiVoice((ok) => setNoVoice(!ok));
+    try {
+      const ids = JSON.parse(localStorage.getItem('thai-pinned-new') || '[]');
+      if (Array.isArray(ids)) setPinned(ids.filter(id => typeof id === 'string'));
+    } catch {}
+    const cleanupVoice = checkThaiVoice((ok) => setNoVoice(!ok));
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+    return cleanupVoice;
   }, []);
 
   const today = todayStr();
@@ -129,31 +157,36 @@ export default function App() {
     if (!list.length) return;
     const ex = new Set(excludedIds);
     const ids = list.filter((p) => !ex.has(p.id)).map((p) => p.id);
+    if (ids.length) await write(() => supabase.from('phrases').update({ hidden: false }).in('id', ids));
+    await write(() => supabase.from('watched_videos').update({ words_added: true }).eq('video_id', videoId));
     setPhrases((prev) => prev.map((p) => (ids.includes(p.id) ? { ...p, hidden: false } : p)));
     if (ids.length) savePinned([...new Set([...pinned, ...ids])]);
     setWatchedVideos((prev) => prev.map((w) => (w.video_id === videoId ? { ...w, words_added: true } : w)));
-    await Promise.all([
-      ids.length ? supabase.from('phrases').update({ hidden: false }).in('id', ids) : Promise.resolve(),
-      supabase.from('watched_videos').update({ words_added: true }).eq('video_id', videoId),
-    ]);
   };
 
-  const startVideoLesson = (videoId, excludedIds = []) => {
+  const startVideoLesson = async (videoId, excludedIds = []) => {
     const ex = new Set(excludedIds);
     const ids = (videoPhrases[videoId] || []).filter((p) => !ex.has(p.id)).map((p) => p.id);
-    addVideoWords(videoId, excludedIds);
+    await addVideoWords(videoId, excludedIds);
     if (ids.length) setOverlay({ type: 'lesson', mode: 'video', videoId, phraseIds: ids });
+  };
+
+  const markWatched = async (videoId) => {
+    if (watchedVideos.some(w => w.video_id === videoId)) return;
+    const row = { video_id: videoId, words_added: false, watched_at: new Date().toISOString() };
+    await write(() => supabase.from('watched_videos').upsert(row));
+    setWatchedVideos(prev => [...prev.filter(w => w.video_id !== videoId), row]);
   };
 
   // ✓ на главной: «уже знаю» — сразу закрепить (box 4); повторный тап отменяет и возвращает в новые
   const toggleLearned = async (phrase) => {
     if ((reviews[phrase.id]?.box ?? -1) >= LEARNED_BOX) {
+      await write(() => supabase.from('reviews').delete().eq('phrase_id', phrase.id));
       setReviews((prev) => {
         const next = { ...prev };
         delete next[phrase.id];
         return next;
       });
-      await supabase.from('reviews').delete().eq('phrase_id', phrase.id);
     } else {
       const row = {
         phrase_id: phrase.id,
@@ -161,48 +194,30 @@ export default function App() {
         due_date: dueDateFor(LEARNED_BOX),
         updated_at: new Date().toISOString(),
       };
+      await write(() => supabase.from('reviews').upsert(row));
       setReviews((prev) => ({ ...prev, [phrase.id]: row }));
       if (pinned.includes(phrase.id)) unpin(phrase.id);
-      await supabase.from('reviews').upsert(row).then(() => {});
     }
   };
 
   // Оценка карточки: обновить box/due_date в reviews (upsert)
   const gradePhrase = async (phrase, grade) => {
-    const box = nextBox(reviews[phrase.id]?.box ?? 0, grade);
-    const row = {
-      phrase_id: phrase.id,
-      box,
-      due_date: dueDateFor(box),
-      updated_at: new Date().toISOString(),
-    };
-    setReviews((prev) => ({ ...prev, [phrase.id]: row }));
+    const data = await saveGrade(phrase.id, grade, overlay.mode);
+    setReviews(prev => ({ ...prev, [phrase.id]: data.review }));
+    setActivity(prev => [...prev.filter(a => a.day !== data.activity.day), data.activity]);
     if (pinned.includes(phrase.id)) unpin(phrase.id);
-    await supabase.from('reviews').upsert(row).then(() => {});
-  };
-
-  // Завершение сессии: upsert в activity по дню (для стрика)
-  const finishSession = async (mode) => {
-    const existing = activity.find((a) => a.day === today);
-    const row = {
-      day: today,
-      did_review: (existing?.did_review ?? false) || mode !== 'new',
-      did_new: (existing?.did_new ?? false) || mode === 'new',
-    };
-    setActivity((prev) => [...prev.filter((a) => a.day !== today), row]);
-    await supabase.from('activity').upsert(row).then(() => {});
   };
 
   const toggleHidden = async (phrase) => {
     const hidden = !phrase.hidden;
+    await write(() => supabase.from('phrases').update({ hidden }).eq('id', phrase.id));
     setPhrases((prev) => prev.map((p) => (p.id === phrase.id ? { ...p, hidden } : p)));
-    await supabase.from('phrases').update({ hidden }).eq('id', phrase.id);
   };
 
   // Скрыть слово прямо с карточки в «Учить новое» (иконка-глаз) — вернуть можно в колоде
-  const hideFromLesson = (phrase) => {
+  const hideFromLesson = async (phrase) => {
+    await toggleHidden(phrase);
     if (pinned.includes(phrase.id)) unpin(phrase.id);
-    toggleHidden(phrase);
   };
 
   const addPhrase = async ({ ru, th, tr, deck }) => {
@@ -264,7 +279,7 @@ export default function App() {
       return <Tones noVoice={noVoice} />;
     }
     if (!overlay && tab === 'videos') {
-      return <Videos />;
+      return <Videos watched={watchedVideos} onWatch={markWatched} videoPhrases={videoPhrases} onLearn={startVideoLesson} />;
     }
     if (overlay?.type === 'dialog') {
       return <DialogPlayer dialogId={overlay.id} noVoice={noVoice} onBack={() => setOverlay(null)} />;
@@ -295,7 +310,6 @@ export default function App() {
           noVoice={noVoice}
           onGrade={gradePhrase}
           onHide={overlay.mode === 'new' ? hideFromLesson : undefined}
-          onFinish={() => finishSession(overlay.mode === 'video' ? 'new' : overlay.mode)}
           onExit={() => setOverlay(overlay.from ? { type: 'deck', id: overlay.deck } : null)}
         />
       );
@@ -311,7 +325,7 @@ export default function App() {
           reviews={reviews}
           onBack={() => setOverlay(null)}
           onTrain={() => setOverlay({ type: 'lesson', mode: 'deck', deck: overlay.id, from: 'deck' })}
-          onToggleHidden={toggleHidden}
+          onToggleHidden={safely(toggleHidden)}
         />
       );
     }
@@ -319,7 +333,7 @@ export default function App() {
       case 'decks':
         return <Decks phrases={phrases} reviews={reviews} onDeck={(id) => setOverlay({ type: 'deck', id })} onAdd={() => setAddOpen(true)} />;
       case 'progress':
-        return <Progress streak={streak} phrases={phrases} reviews={reviews} />;
+        return <><Progress streak={streak} phrases={phrases} reviews={reviews} /><BackupControls onRestore={load} /></>;
       default:
         return (
           <Home
@@ -331,7 +345,7 @@ export default function App() {
             reviews={reviews}
             pinnedIds={pinned}
             onTogglePin={togglePin}
-            onToggleLearned={toggleLearned}
+            onToggleLearned={safely(toggleLearned)}
             onStartNew={() => setOverlay({ type: 'lesson', mode: 'new' })}
             onStartReview={() => setOverlay({ type: 'lesson', mode: 'review' })}
             onPlace={(deck) => setOverlay({ type: 'place', id: deck })}
@@ -346,6 +360,7 @@ export default function App() {
       display: 'flex', flexDirection: 'column', position: 'relative',
     }}>
       <div style={{ flex: 1, overflow: 'auto', padding: 'calc(env(safe-area-inset-top) + 20px) 20px 20px', boxSizing: 'border-box' }}>
+        {saveStatus && <p role="status" aria-live="polite" style={{ fontSize: 13, color: C.sub }}>{saveStatus}</p>}
         {content()}
       </div>
       {!inLesson && (

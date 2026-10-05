@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { C, Icon, SpeakBtn } from '@/components/ui';
 
 const wordForm = (n) =>
@@ -12,21 +12,31 @@ const wordForm = (n) =>
 // по выбранным словам; крестик просто закрывает (выбранные всё равно добавлены).
 // onStart(excludedIds) и onClose(excludedIds) сообщают родителю, какие слова исключить.
 export default function VideoWords({ videoNo, title, phrases, onStart, onClose }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const busy = useRef(false);
+  const submit = async (start = false) => {
+    if (busy.current) return;
+    busy.current = true;
+    setSaving(true); setError('');
+    try { await (start ? onStart : onClose)([...excluded]); }
+    catch { setError('Не сохранилось — проверь подключение и попробуй ещё раз.'); }
+    finally { busy.current = false; setSaving(false); }
+  };
   const [excluded, setExcluded] = useState(() => new Set());
 
   const toggle = (id) =>
-    setExcluded((prev) => {
+    !saving && setExcluded((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
 
   const included = phrases.length - excluded.size;
-  const excludedIds = () => [...excluded];
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', maxWidth: 430, margin: '0 auto' }}>
-      <div className="fade-in" onClick={() => onClose(excludedIds())} style={{ position: 'absolute', inset: 0, background: 'rgba(23,24,26,0.5)' }} />
+      <div className="fade-in" onClick={() => submit()} style={{ position: 'absolute', inset: 0, background: 'rgba(23,24,26,0.5)' }} />
       <div className="sheet-up" style={{ position: 'relative', background: '#fff', borderRadius: '28px 28px 0 0', padding: '12px 20px calc(24px + env(safe-area-inset-bottom))', maxHeight: '86dvh', display: 'flex', flexDirection: 'column' }}>
         <div style={{ width: 36, height: 4, borderRadius: 99, background: '#E4E4E2', margin: '0 auto', flexShrink: 0 }} />
 
@@ -40,7 +50,7 @@ export default function VideoWords({ videoNo, title, phrases, onStart, onClose }
               Из видео {videoNo}{title ? ` — ${title}` : ''}. Сними галочку с тех, что не нужны.
             </div>
           </div>
-          <div className="press-sm" onClick={() => onClose(excludedIds())} style={{
+          <div className="press-sm" onClick={() => submit()} style={{
             width: 34, height: 34, borderRadius: 999, background: C.bg, flexShrink: 0,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
@@ -78,15 +88,16 @@ export default function VideoWords({ videoNo, title, phrases, onStart, onClose }
 
         <div
           className="press"
-          onClick={() => included > 0 && onStart(excludedIds())}
+          onClick={() => included > 0 && submit(true)}
           style={{
             background: '#17181A', color: '#fff', borderRadius: 999, height: 52, marginTop: 16, flexShrink: 0,
             display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 800,
             opacity: included > 0 ? 1 : 0.45, pointerEvents: included > 0 ? 'auto' : 'none',
           }}
         >
-          Начать сейчас
+          {saving ? 'Сохраняю…' : 'Начать сейчас'}
         </div>
+        {error && <p role="alert">{error}</p>}
         <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 600, color: C.faint, marginTop: 10, flexShrink: 0 }}>
           {included > 0
             ? `${included} ${wordForm(included)} — в «Учить новое»${excluded.size ? `, ${excluded.size} убрано` : ''}`

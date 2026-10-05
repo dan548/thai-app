@@ -1,12 +1,13 @@
 'use client';
 
-import { C, ScreenTitle, SectionLabel, SpeakBtn } from '@/components/ui';
+import { C, ScreenTitle, SectionLabel, SpeakBtn, NoVoiceHint } from '@/components/ui';
 import { TONES, TONE_DEMO } from '@/lib/data';
 
 export default function Tones({ noVoice }) {
   return (
     <div className="fade-in">
       <ScreenTitle>Тона</ScreenTitle>
+      {noVoice && <NoVoiceHint />}
       <div style={{ fontSize: 13, fontWeight: 500, color: C.sub, marginTop: 6, lineHeight: 1.5 }}>
         В тайском 5 тонов, и тон меняет смысл слова. Слушай и повторяй вслух.
       </div>

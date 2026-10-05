@@ -1,31 +1,29 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { useRef, useState } from 'react';
 import { C, Icon, ScreenTitle } from '@/components/ui';
 import { VIDEOS } from '@/lib/data';
 
 // Вкладка «Видео»: ролики с ютуб-канала по порядку. «Посмотреть» открывает YouTube
 // и помечает видео просмотренным. Отметки хранятся в Supabase (таблица watched_videos),
 // поэтому переживают перезагрузку и синхронизируются между устройствами.
-export default function Videos() {
-  const [watched, setWatched] = useState([]);
-
-  useEffect(() => {
-    supabase.from('watched_videos').select('video_id').then(({ data }) => {
-      if (data) setWatched(data.map((r) => r.video_id));
-    });
-  }, []);
-
-  const markWatched = (id) => {
-    if (watched.includes(id)) return;
-    setWatched((prev) => (prev.includes(id) ? prev : [...prev, id]));
-    supabase.from('watched_videos').upsert({ video_id: id }).then(() => {});
+export default function Videos({ watched, onWatch, videoPhrases, onLearn }) {
+  const busy = useRef(false);
+  const [saving, setSaving] = useState(null);
+  const [error, setError] = useState('');
+  const perform = async (id, action) => {
+    if (busy.current) return;
+    busy.current = true; setSaving(id); setError('');
+    try { await action(); }
+    catch { setError('Не сохранилось — проверь подключение и попробуй ещё раз.'); }
+    finally { busy.current = false; setSaving(null); }
   };
 
   return (
     <div className="fade-in">
       <ScreenTitle>Видео</ScreenTitle>
+      {error && <p role="alert">{error}</p>}
+      {saving && <p role="status">Сохраняю…</p>}
       <div style={{ fontSize: 13, fontWeight: 500, color: C.sub, marginTop: 6, lineHeight: 1.5 }}>
         Смотри по порядку — просмотренные отмечаются галочкой.
       </div>
@@ -42,7 +40,7 @@ export default function Videos() {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 20 }}>
         {VIDEOS.map((v, i) => {
-          const seen = watched.includes(v.id);
+          const seen = watched.some(w => w.video_id === v.id);
           return (
             <div key={v.id} style={{ background: '#fff', borderRadius: 20, padding: 16, display: 'flex', alignItems: 'center', gap: 13 }}>
               <div style={{
@@ -57,12 +55,18 @@ export default function Videos() {
                 <div style={{ fontSize: 15.5, fontWeight: 800 }}>Видео {i + 1}</div>
                 {v.title && <div style={{ fontSize: 12.5, fontWeight: 500, color: C.sub, marginTop: 2, lineHeight: 1.35 }}>{v.title}</div>}
               </div>
+              {seen && videoPhrases[v.id]?.length > 0 && <button disabled={!!saving} onClick={() => perform(v.id, () => onLearn(v.id))} style={{ border: 0, borderRadius: 16, padding: 10, cursor: 'pointer' }}>Учить слова</button>}
               <a
                 className="press-sm"
                 href={`https://www.youtube.com/watch?v=${v.id}`}
                 target="_blank"
                 rel="noreferrer"
-                onClick={() => markWatched(v.id)}
+                onClick={event => {
+                  // Обычный переход открывает новую вкладку, поэтому текущая
+                  // страница остаётся открытой и ожидает подтверждения записи.
+                  if (busy.current) { event.preventDefault(); return; }
+                  perform(v.id, () => onWatch(v.id));
+                }}
                 style={{
                   background: seen ? C.bg : '#17181A', color: seen ? C.text : '#fff',
                   borderRadius: 999, padding: '11px 18px', fontSize: 13, fontWeight: 800,

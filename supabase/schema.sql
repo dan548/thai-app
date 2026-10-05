@@ -1,4 +1,4 @@
--- Thai Trainer — схема БД. Личное однопользовательское приложение, RLS allow-all.
+-- Thai Trainer — схема БД. По умолчанию клиентский доступ закрыт.
 -- Выполни этот файл в SQL Editor нового проекта Supabase (или через /setup).
 
 create table if not exists phrases (
@@ -32,17 +32,14 @@ create table if not exists watched_videos (
   watched_at timestamptz not null default now()
 );
 
--- RLS: включаем и разрешаем всё (личное приложение, ключ anon).
+-- RLS: доступ закрыт до назначения владельца через secure-owner.sql.
 alter table phrases enable row level security;
 alter table reviews enable row level security;
 alter table activity enable row level security;
 alter table watched_videos enable row level security;
 
-do $$
-begin
-  create policy allow_all_phrases on phrases for all using (true) with check (true);
-  create policy allow_all_reviews on reviews for all using (true) with check (true);
-  create policy allow_all_activity on activity for all using (true) with check (true);
-  create policy allow_all_watched on watched_videos for all using (true) with check (true);
-exception when duplicate_object then null;
-end $$;
+drop policy if exists allow_all_phrases on phrases;
+drop policy if exists allow_all_reviews on reviews;
+drop policy if exists allow_all_activity on activity;
+drop policy if exists allow_all_watched on watched_videos;
+revoke all on phrases, reviews, activity, watched_videos from anon, authenticated;

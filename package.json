@@ -5,12 +5,20 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test": "node --test lib/*.test.js"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.45.0",
-    "next": "^15.1.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "@supabase/supabase-js": "2.110.2",
+    "next": "15.5.27",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "overrides": {
+    "postcss": "8.5.29"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
   }
 }
