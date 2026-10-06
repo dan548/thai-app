@@ -1,4 +1,5 @@
 -- Выполнить после создания владельца в Authentication → Users.
+-- ВАЖНО: перед запуском замени owner_email ниже на email владельца (/setup делает это сам).
 -- Перед выполнением экспортировать четыре таблицы (см. docs/security.md).
 begin;
 
@@ -14,11 +15,13 @@ create policy owner_can_read on public.app_owner for select to authenticated
   using (user_id = (select auth.uid()));
 
 do $$
-declare owner_id uuid;
+declare
+  owner_email constant text := 'owner@example.com'; -- ← email владельца
+  owner_id uuid;
 begin
-  select id into owner_id from auth.users where lower(email) = 'sibraine@proton.me';
+  select id into owner_id from auth.users where lower(email) = lower(owner_email);
   if owner_id is null then
-    raise exception 'Сначала создайте владельца sibraine@proton.me в Authentication → Users';
+    raise exception 'Сначала создайте владельца % в Authentication → Users (и подставьте его email в owner_email)', owner_email;
   end if;
   if exists (select 1 from public.app_owner where user_id <> owner_id) then
     raise exception 'Владелец уже задан; автоматическая замена запрещена';
