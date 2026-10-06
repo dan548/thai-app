@@ -11,7 +11,7 @@ export default function Dialogs({ onOpen }) {
     <div className="fade-in">
       <ScreenTitle>Диалоги</ScreenTitle>
       <div style={{ fontSize: 13, fontWeight: 500, color: C.sub, marginTop: 6, lineHeight: 1.5 }}>
-        Пройди диалог вслух: реплики тайца озвучиваются, свои — говоришь сама, потом проверяешь.
+        Пройди диалог вслух: слушай реплики собеседника, свои произноси вслух, потом проверяй ответ.
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 20 }}>
         {DIALOGS.map((d) => (
