@@ -10,7 +10,8 @@
    единственного пользователя: свой email, свой пароль, включи
    **Auto Confirm User**. Пароль нигде в проекте не хранится.
 5. Открой `supabase/secure-owner.sql`, замени в нём `owner@example.com`
-   (`owner_email`) на этот email и выполни. Файл в репозитории оставь как есть.
+   (`owner_email`, между `$email$`) на этот email точно как в Authentication и
+   выполни. Файл в репозитории оставь как есть.
 6. Выполни по очереди: `supabase/save-grade.sql`,
    `supabase/learning-workflows.sql`, `supabase/restore-backup.sql`.
 7. Выполни `supabase/seed.sql`, затем `supabase/seed-decisions.sql`

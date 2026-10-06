@@ -16,7 +16,7 @@ create policy owner_can_read on public.app_owner for select to authenticated
 
 do $$
 declare
-  owner_email constant text := 'owner@example.com'; -- ← email владельца
+  owner_email constant text := $email$owner@example.com$email$; -- ← email владельца; кавычки $email$ не удалять
   owner_id uuid;
 begin
   select id into owner_id from auth.users where lower(email) = lower(owner_email);
