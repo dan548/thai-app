@@ -29,7 +29,7 @@ export default function Home({
     <div className="fade-in">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <div className="thai" style={{ fontSize: 26, fontWeight: 700, lineHeight: 1.1 }}>สวัสดี {USER_NAME}</div>
+          <div className="thai" style={{ fontSize: 26, fontWeight: 700, lineHeight: 1.1 }}>{applyGender('สวัสดีค่ะ')} {USER_NAME}</div>
           <div style={{ fontSize: 12.5, fontWeight: 600, color: C.sub, marginTop: 3 }}>{applyGender('sà-wàt-dii khâ')} · Савади</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff', borderRadius: 999, padding: '8px 13px', flexShrink: 0 }}>
